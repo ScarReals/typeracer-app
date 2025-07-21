@@ -1,0 +1,229 @@
+/* src/App.css */
+
+:root {
+  --grad-start: #a14fff;
+  --grad-end:   #00f5a0;
+  --bg-dark:    #0b0b0d;
+  --card-bg:    #1a1a1d;
+  --text-light: #f0f0f5;
+  --text-muted: #c0c0c8;
+  --error-red:  #e74c3c;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0; padding: 0;
+}
+body {
+  background: linear-gradient(135deg, var(--grad-start), var(--grad-end));
+  font-family: 'Segoe UI', sans-serif;
+  color: var(--text-light);
+}
+.app {
+  max-width: 1000px;
+  width: 95%;
+  margin: 2rem auto;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.title {
+  font-size: 2.8rem;
+  font-weight: bold;
+}
+.connect-btn .wallet-adapter-button {
+  background: var(--grad-start) !important;
+  border-radius: 6px;
+  color: #fff !important;
+}
+.wallet-info {
+  font-family: monospace;
+  background: var(--card-bg);
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+}
+.center-note {
+  text-align: center;
+  margin: 2rem 0;
+  color: var(--text-muted);
+}
+
+section {
+  background: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+/* Matchmaking */
+.matchmaking h2,
+.subheading {
+  font-size: 1.6rem;
+  margin-bottom: 1rem;
+}
+input[type="number"] {
+  width: 150px;
+  padding: 0.8rem;
+  font-size: 1.2rem;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-light);
+}
+input[type="number"]:focus {
+  outline: none; border-color: var(--grad-start);
+}
+button {
+  padding: 0.8rem 1.4rem;
+  font-size: 1.1rem;
+  margin-top: 0.6rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: linear-gradient(90deg, var(--grad-start), var(--grad-end));
+  color: #fff;
+  transition: opacity 0.2s;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.match-list {
+  list-style: none;
+  margin-top: 1.5rem;
+}
+.match-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.match-info {
+  font-family: monospace;
+  font-size: 1.1rem;
+}
+.match-controls {
+  display: flex;
+  align-items: center;
+}
+.btn-accept,
+.btn-cancel {
+  font-size: 1rem;
+}
+.cancel-timer {
+  margin-left: 0.6rem;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+/* Waiting */
+.waiting-section h2 {
+  font-size: 1.8rem;
+  margin-bottom: 1.2rem;
+}
+
+/* Race */
+.race-section .countdown {
+  font-size: 1.8rem;
+  color: var(--grad-start);
+  margin-bottom: 1.5rem;
+}
+.sentence-display {
+  background: #2a2a2d;
+  padding: 1.6rem;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+}
+input[type="text"] {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.25rem;
+  border: 2px solid var(--text-muted);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-light);
+  font-family: monospace;
+}
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--grad-end);
+}
+.input-error {
+  border-color: var(--error-red) !important;
+}
+.error-text {
+  color: var(--error-red);
+  margin: 0.75rem 0;
+  font-size: 1rem;
+}
+
+/* Track & cars */
+.track {
+  margin-top: 1.5rem;
+}
+.lane {
+  position: relative;
+  height: 80px;
+  margin-bottom: 1rem;
+  background: #2f2f32;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.car {
+  position: absolute;
+  top: 12px;
+  font-size: 2.5rem;
+  transition: left 0.1s linear;
+}
+
+/* Results */
+.results h2 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: var(--grad-start);
+}
+.btn-claim,
+.btn-back {
+  font-size: 1.1rem;
+  padding: 0.8rem 1.2rem;
+}
+
+/* Chat */
+.chat-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+.chat-messages {
+  max-height: 140px;
+  overflow-y: auto;
+  background: #2a2a2d;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+.chat-input {
+  display: flex;
+}
+.chat-input input {
+  flex: 1;
+  padding: 0.8rem;
+  font-size: 1rem;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px 0 0 4px;
+  background: transparent;
+  color: var(--text-light);
+}
+.btn-send {
+  font-size: 1rem;
+  padding: 0.8rem 1rem;
+  background: var(--grad-start);
+  border-radius: 0 4px 4px 0;
+  margin-left: -1px;
+}
+

@@ -1,0 +1,15 @@
+{
+  "wagers": [
+    {
+      "id": "7ntqgiod9fBW7Ecn2FVq6f679g279fZoSCCthsdKRHxn",
+      "amount": 0.01,
+      "creator": "2gg6ee9Bja1BYiRvwV4YEyUcH7ZCtAnf72imTBUEjjbr",
+      "feePercent": 5,
+      "status": "racing",
+      "vault": "7ntqgiod9fBW7Ecn2FVq6f679g279fZoSCCthsdKRHxn",
+      "nonce": 289699,
+      "accepter": "5ETqfRRA4VaMUqruu4Zgp8cHcHaU6DjDPBAb6ARiG5xU",
+      "winner": "2gg6ee9Bja1BYiRvwV4YEyUcH7ZCtAnf72imTBUEjjbr"
+    }
+  ]
+}

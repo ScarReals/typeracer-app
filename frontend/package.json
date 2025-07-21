@@ -1,0 +1,52 @@
+{
+  "name": "solana-wager-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/App.jsx",
+  "scripts": {
+    "start": "craco start",
+    "build": "craco build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/wallet-adapter-wallets": "^0.19.37",
+    "@solana/web3.js": "^1.93.0",
+    "ajv": "^6.12.6",
+    "ajv-keywords": "^3.5.2",
+    "assert": "^2.1.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.1",
+    "process": "^0.11.10",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "socket.io-client": "^4.8.1",
+    "stream-browserify": "^3.0.0",
+    "util": "^0.12.5"
+  },
+  "devDependencies": {
+    "@craco/craco": "^7.1.0",
+    "react-scripts": "5.0.1",
+    "typescript": "4.9.5",
+    "webpack": "^5.100.1"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "wagers": [
+    {
+      "id": "84ytzyfw3HBuvkJHtXhjcpn9fQ5FDhVeak4bMyYmfHiw",
+      "amount": 0.001,
+      "creator": "2gg6ee9Bja1BYiRvwV4YEyUcH7ZCtAnf72imTBUEjjbr",
+      "feePercent": 5,
+      "vault": "84ytzyfw3HBuvkJHtXhjcpn9fQ5FDhVeak4bMyYmfHiw",
+      "nonce": 25887,
+      "resolved": false,
+      "accepter": "5ETqfRRA4VaMUqruu4Zgp8cHcHaU6DjDPBAb6ARiG5xU",
+      "winner": "5ETqfRRA4VaMUqruu4Zgp8cHcHaU6DjDPBAb6ARiG5xU"
+    }
+  ]
+}

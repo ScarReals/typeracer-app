@@ -1,0 +1,12 @@
+[programs.devnet]
+sol_wager = "DHStC5qVLRHPTqypiYSjVefhGVz5LgbYN8AL4gZUY5hA"
+
+[programs.mainnet]
+sol_wager = "EoxbV87Pub3gedymWbJpJ4eV67rGsPd7qcTFwGScbPEn"
+
+[workspace]
+members = ["program"]
+
+[provider]
+cluster = "mainnet"   # switch this to mainnet when deploying or testing on mainnet
+wallet = "~/.config/solana/id.json"
