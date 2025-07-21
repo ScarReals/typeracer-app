@@ -1,0 +1,125 @@
+import * as anchor from "@coral-xyz/anchor";
+import { getProgram } from "./solana";
+
+/**
+ * Initialize the escrow on‑chain and return its PDA.
+ * This ONLY waits for the transaction to be sent, NOT confirmed!
+ */
+export async function initializeEscrow(wagerLamports) {
+  const program = getProgram();
+  const walletPk = program.provider.wallet.publicKey;
+  // Random nonce for PDA uniqueness
+  const nonce = new anchor.BN(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER), 10, "le");
+  const [escrowPda] = await anchor.web3.PublicKey.findProgramAddress(
+    [Buffer.from("escrow"), walletPk.toBuffer(), nonce.toArrayLike(Buffer, "le", 8)],
+    program.programId
+  );
+  try {
+    await program.methods
+      .initialize(new anchor.BN(wagerLamports), nonce)
+      .accounts({
+        escrow: escrowPda,
+        player1: walletPk,
+        authority: walletPk,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc({
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+      });
+    // No await for confirmation here!
+  } catch (e) {
+    console.error("initializeEscrow failed:", e);
+    throw e;
+  }
+  return escrowPda;
+}
+
+/** Join the escrow (only waits for signature, not confirmation). */
+export async function joinEscrow(escrowPda) {
+  const program = getProgram();
+  try {
+    await program.methods
+      .join()
+      .accounts({
+        escrow: escrowPda,
+        player2: program.provider.wallet.publicKey,
+      })
+      .rpc({
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+      });
+  } catch (e) {
+    console.error("joinEscrow failed:", e);
+    throw e;
+  }
+}
+
+/** Deposit into the escrow (same as above). */
+export async function depositToEscrow(escrowPda) {
+  const program = getProgram();
+  try {
+    await program.methods
+      .deposit()
+      .accounts({
+        escrow: escrowPda,
+        payer: program.provider.wallet.publicKey,
+        escrowAccount: escrowPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc({
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+      });
+  } catch (e) {
+    console.error("depositToEscrow failed:", e);
+    throw e;
+  }
+}
+
+/** Resolve the escrow, paying out the winner and house. */
+export async function resolveEscrow(escrowPda, winnerPubkey) {
+  const program = getProgram();
+  const house = new anchor.web3.PublicKey("A32Burni3cYyFAqjZM3CvCrStAKRFCfftk196Xfpx9Hs");
+  try {
+    await program.methods
+      .resolve(winnerPubkey)
+      .accounts({
+        escrow: escrowPda,
+        winner: winnerPubkey,
+        house,
+        escrowAccount: escrowPda,
+        authority: program.provider.wallet.publicKey,
+      })
+      .rpc({
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+      });
+  } catch (e) {
+    console.error("resolveEscrow failed:", e);
+    throw e;
+  }
+}
+
+/** Cancel the escrow and refund both players. */
+export async function cancelEscrow(escrowPda, player1, player2) {
+  const program = getProgram();
+  try {
+    await program.methods
+      .cancel()
+      .accounts({
+        escrow: escrowPda,
+        player1,
+        player2,
+        escrowAccount: escrowPda,
+        authority: program.provider.wallet.publicKey,
+      })
+      .rpc({
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+      });
+  } catch (e) {
+    console.error("cancelEscrow failed:", e);
+    throw e;
+  }
+}

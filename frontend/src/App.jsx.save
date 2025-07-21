@@ -1,0 +1,254 @@
+                >
+                  {isAccepting
+                    ? "Accepting…"
+                    : "Accept"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+
+  const renderWaiting = () => (
+    <section className="waiting-section">
+      <h2>Waiting for opponent…</h2>
+      <button
+        onClick={() =>
+          cancelMatch(currentMatch)
+        }
+      >
+        Cancel Match
+      </button>
+    </section>
+  );
+
+  const renderRace = () => (
+    <section className="race-section">
+      {matchStatus === "ready" && (
+        <h2>Starting in {countdown}</h2>
+      )}
+      {matchStatus === "racing" && (
+        <>
+          <div className="sentence-display">
+            {sentence}
+          </div>
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={handleInput}
+            onPaste={handleInput}
+            placeholder="Start typing…"
+            disabled={isInputDisabled}
+          />
+          <div className="track">
+            <div className="lane">
+              <div
+                className="car car-player"
+                style={{
+                  left: `${
+                    playerProgress * 100
+                  }%`,
+                }}
+              >
+                🚗
+              </div>
+            </div>
+            <div className="lane">
+              <div
+                className="car car-opponent"
+                style={{
+                  left: `${
+                    opponentProgress *
+                    100
+                  }%`,
+                }}
+              >
+                🏎️
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {matchStatus === "finished" &&
+        raceResult?.result ===
+          "win" && (
+          <div className="results results-win">
+            <h2
+              style={{ fontSize: "2rem" }}
+            >
+              🏆 You Won!
+            </h2>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(
+                    `${API}/wagers/${currentMatch.id}/resolve`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type":
+                          "application/json",
+                      },
+                      body: JSON.stringify({
+                        winner:
+                          walletAddressRef.current,
+                      }),
+                    }
+                  );
+                  const data =
+                    await res.json();
+                  if (data.success) {
+                    alert(
+                      "Winnings claimed!\nSignature: " +
+                        data.signature
+                    );
+                    resetGame();
+                  } else {
+                    throw new Error(
+                      data.error ||
+                        "Failed to claim winnings"
+                    );
+                  }
+                } catch (e) {
+                  console.error(
+                    "Claim error:",
+                    e
+                  );
+                  alert(
+                    "Payout error:\n" +
+                      e.message
+                  );
+                }
+              }}
+            >
+              Claim Winnings
+            </button>
+          </div>
+        )}
+      {matchStatus === "finished" &&
+        raceResult?.result ===
+          "lose" && (
+          <div
+            className="results results-lose"
+            style={{ textAlign: "center" }}
+          >
+            <h2
+              style={{
+                fontSize: "2rem",
+                color: "#c0392b",
+              }}
+            >
+              😢 You Lost!
+            </h2>
+            <p>Better luck next time!</p>
+            <button onClick={resetGame}>
+              Back to Matches
+            </button>
+          </div>
+        )}
+    </section>
+  );
+
+  const renderChat = () => (
+    <section className="chat-section">
+      <h2>Chat</h2>
+      <div
+        className="chat-messages"
+        style={{
+          maxHeight: 150,
+          overflowY: "auto",
+        }}
+      >
+        {chatMessages.map((msg, i) => (
+          <p
+            key={i}
+            className={
+              msg.sender ===
+              walletAddressRef.current
+                ? "self"
+                : "other"
+            }
+          >
+            <strong>
+              {msg.sender.slice(0, 6)}…:
+            </strong>{" "}
+            {msg.message}
+          </p>
+        ))}
+      </div>
+      <input
+        value={chatInput}
+        onChange={(e) =>
+          setChatInput(e.target.value)
+        }
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            socket.emit("message", {
+              matchId: currentMatch.id,
+              sender:
+                walletAddressRef.current,
+              message: chatInput,
+            });
+            setChatInput("");
+          }
+        }}
+      />
+      <button
+        onClick={() => {
+          socket.emit("message", {
+            matchId: currentMatch.id,
+            sender:
+              walletAddressRef.current,
+            message: chatInput,
+          });
+          setChatInput("");
+        }}
+        disabled={!chatInput.trim()}
+      >
+        Send
+      </button>
+    </section>
+  );
+
+  return (
+    <div className="app">
+      <header>
+        <h1>Type Racer</h1>
+        {connected ? (
+          <div className="wallet-info">
+            {walletAddressRef.current.slice(
+              0,
+              6
+            )}
+            … ({walletBalance.toFixed(2)} SOL)
+          </div>
+        ) : (
+          <WalletMultiButton />
+        )}
+      </header>
+
+      {!connected && (
+        <p>Please connect your wallet to play.</p>
+      )}
+      {connected && !currentMatch &&
+        renderMatchmaking()}
+      {connected &&
+        currentMatch &&
+        matchStatus === "waiting" &&
+        renderWaiting()}
+      {connected &&
+        currentMatch &&
+        (matchStatus === "ready" ||
+          matchStatus === "racing" ||
+          matchStatus === "finished") &&
+        renderRace()}
+      {connected &&
+        currentMatch &&
+        matchStatus === "finished" &&
+        renderChat()}
+    </div>
+  );
+}

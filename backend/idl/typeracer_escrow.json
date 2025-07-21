@@ -1,0 +1,213 @@
+{
+  "version": "0.1.0",
+  "name": "typeracer_escrow",
+  "metadata": {
+    "address": "EoxbV87Pub3gedymWbJpJ4eV67rGsPd7qcTFwGScbPEn",
+    "name": "typeracer_escrow",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize a new escrow with a unique nonce"
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [101, 115, 99, 114, 111, 119] },
+              { "kind": "account", "path": "player1" },
+              { "kind": "arg", "path": "nonce" }
+            ]
+          }
+        },
+        {
+          "name": "player1",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "wager", "type": "u64" },
+        { "name": "nonce", "type": "u64" }
+      ]
+    },
+    {
+      "name": "join",
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player2",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit",
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "join_and_deposit",
+      "docs": [
+        "--- NEW: join_and_deposit instruction ---"
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player2",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel",
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player1",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player2",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true,
+          "relations": ["escrow"]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resolve",
+      "accounts": [
+        {
+          "name": "escrow",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "winner",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "house",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        { "name": "winner", "type": "publicKey" }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Escrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "player1",      "type": "publicKey" },
+          { "name": "player2",      "type": "publicKey" },
+          { "name": "authority",    "type": "publicKey" },
+          { "name": "wager",        "type": "u64" },
+          { "name": "totalAmount",  "type": "u64" },
+          { "name": "p1Deposited",  "type": "bool" },
+          { "name": "p2Deposited",  "type": "bool" },
+          { "name": "isActive",     "type": "bool" },
+          { "name": "nonce",        "type": "u64" }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    { "code": 6000, "name": "NotActive",        "msg": "Escrow is not active." },
+    { "code": 6001, "name": "AlreadyJoined",    "msg": "Escrow already joined." },
+    { "code": 6002, "name": "NotAPlayer",       "msg": "Not a valid player." },
+    { "code": 6003, "name": "AlreadyDeposited", "msg": "Already deposited." },
+    { "code": 6004, "name": "NotFullyFunded",   "msg": "Both players haven't deposited." },
+    { "code": 6005, "name": "InvalidWinner",    "msg": "Invalid winner." }
+  ]
+}
