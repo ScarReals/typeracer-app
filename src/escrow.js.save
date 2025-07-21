@@ -1,0 +1,135 @@
+// src/escrow.js
+
+import * as anchor from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import idl from "./idl/typeracer_escrow.json";
+
+// Program ID from the IDL metadata (fallback to idl.address for older IDLs)
+const PROGRAM_ID = new PublicKey(idl.metadata?.address || idl.address);
+
+/**
+ * Returns a typed Program client. You must have called setProvider()
+ * (from your solana.js) before calling any of these.
+ */
+function getProgram() {
+  const provider = anchor.getProvider();
+  if (!provider) throw new Error("Provider not set. Call setProvider in App.jsx first.");
+  return new anchor.Program(idl, PROGRAM_ID, provider);
+}
+
+/**
+ * Build Initialize + Deposit instructions;
+ * App.jsx will sign+send these.
+ */
+export async function buildInitializeAndDepositIxns(wagerLamports) {
+  const program = getProgram();
+  const provider = anchor.getProvider();
+  const nonce = Math.floor(Math.random() * 1_000_000);
+
+  // derive the PDA for this escrow
+  const [escrowPda] = await PublicKey.findProgramAddress(
+    [
+      Buffer.from("escrow"),
+      provider.wallet.publicKey.toBuffer(),
+      new anchor.BN(nonce).toArrayLike(Buffer, "le", 8),
+    ],
+    program.programId
+  );
+
+  // initialize
+  const ixInit = await program.methods
+    .initialize(new anchor.BN(wagerLamports), new anchor.BN(nonce))
+    .accounts({
+      escrow: escrowPda,
+      player1: provider.wallet.publicKey,
+      authority: provider.wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+
+  // deposit
+  const ixDeposit = await program.methods
+    .deposit()
+    .accounts({
+      escrow: escrowPda,
+      payer: provider.wallet.publicKey,
+      escrowAccount: escrowPda,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+
+  return { ixInit, ixDeposit, escrowPda };
+}
+
+/**
+ * Build the JoinAndDeposit instruction.
+ */
+export async function buildJoinAndDepositIxn(escrowPda) {
+  const program = getProgram();
+  const provider = anchor.getProvider();
+
+  // fetch on‑chain Escrow to confirm PDA
+  const acct = await program.account.escrow.fetch(escrowPda);
+  // use the PDA itself as the vault account
+  const vault = escrowPda;
+
+  const ix = await program.methods
+    .joinAndDeposit()
+    .accounts({
+      escrow: escrowPda,
+      player2: provider.wallet.publicKey,
+      escrowAccount: vault,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+
+  return ix;
+}
+
+/**
+ * Build the Cancel instruction.
+ */
+export async function buildCancelIxn(escrowPda, player1Pubkey, player2Pubkey) {
+  const program = getProgram();
+  const provider = anchor.getProvider();
+
+  const acct = await program.account.escrow.fetch(escrowPda);
+  const vault = escrowPda;
+
+  const ix = await program.methods
+    .cancel()
+    .accounts({
+      escrow: escrowPda,
+      player1: player1Pubkey,
+      player2: player2Pubkey,
+      escrowAccount: vault,
+      authority: provider.wallet.publicKey,
+    })
+    .instruction();
+
+  return ix;
+}
+
+/**
+ * Build the Resolve instruction.
+ */
+export async function buildResolveIxn(escrowPda, winnerPubkey) {
+  const program = getProgram();
+  const provider = anchor.getProvider();
+
+  const acct = await program.account.escrow.fetch(escrowPda);
+  const vault = escrowPda;
+
+  const ix = await program.methods
+    .resolve(winnerPubkey)
+    .accounts({
+      escrow: escrowPda,
+      winner: winnerPubkey,
+      house: provider.wallet.publicKey,
+      escrowAccount: escrowPDA,
+      authority: provider.wallet.publicKey,
+    })
+    .instruction();
+
+  return ix;
+}

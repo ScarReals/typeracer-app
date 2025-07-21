@@ -1,0 +1,326 @@
+{
+  "address": "DHStC5qVLRHPTqypiYSjVefhGVz5LgbYN8AL4gZUY5hA",
+  "metadata": {
+    "name": "sol_wager",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "accept_match",
+      "discriminator": [
+        47,
+        107,
+        76,
+        149,
+        208,
+        223,
+        186,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "CHECK"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "accepter",
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_match",
+      "discriminator": [
+        142,
+        136,
+        247,
+        45,
+        92,
+        112,
+        180,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "CHECK"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "complete_match",
+      "discriminator": [
+        85,
+        206,
+        230,
+        159,
+        116,
+        39,
+        25,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "CHECK"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "create_match",
+      "discriminator": [
+        107,
+        2,
+        184,
+        145,
+        70,
+        142,
+        17,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "wager_amount",
+          "type": "u64"
+        },
+        {
+          "name": "fee_percent",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MatchAccount",
+      "discriminator": [
+        235,
+        36,
+        243,
+        39,
+        81,
+        16,
+        144,
+        87
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidWagerAmount",
+      "msg": "Wager amount must be > 0"
+    },
+    {
+      "code": 6001,
+      "name": "CannotAcceptOwnMatch",
+      "msg": "You cannot accept your own match"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidStatus",
+      "msg": "Invalid match status for this operation"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidWinner",
+      "msg": "Winner must be creator or accepter"
+    },
+    {
+      "code": 6004,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "MatchAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "accepter",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_percent",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MatchStatus"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Accepted"
+          },
+          {
+            "name": "Complete"
+          },
+          {
+            "name": "Canceled"
+          }
+        ]
+      }
+    }
+  ]
+}
