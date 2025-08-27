@@ -1,0 +1,790 @@
+import React, { useState, useEffect, useRef } from "react";
+import "./App.css";
+import sentences from "./sentences";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { LAMPORTS_PER_SOL, Transaction } from "@solana/web3.js";
+import socket from "./socket";
+import * as anchor from "@coral-xyz/anchor";
+import { setProvider } from "./solana";
+import {
+  buildInitializeAndDepositIxns,
+  buildJoinAndDepositIxn,
+  buildCancelIxn,
+  buildResolveIxn,
+} from "./escrow";
+
+export default function App() {
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const { publicKey, connected } = wallet;
+  const walletAddress = publicKey?.toBase58() || "";
+
+  // reflect address in event handlers
+  const walletAddressRef = useRef(walletAddress);
+  useEffect(() => {
+    walletAddressRef.current = walletAddress;
+  }, [walletAddress]);
+
+  // Anchor provider
+  useEffect(() => {
+    if (connected && connection) {
+      const prov = new anchor.AnchorProvider(connection, wallet, {
+        preflightCommitment: "confirmed",
+        commitment: "confirmed",
+      });
+      anchor.setProvider(prov);
+      setProvider(wallet);
+    }
+  }, [connected, connection, wallet]);
+
+  // Wallet balance
+  const [walletBalance, setWalletBalance] = useState(0);
+  useEffect(() => {
+    if (connection && publicKey) {
+      connection.getBalance(publicKey).then((lamports) => {
+        setWalletBalance(lamports / LAMPORTS_PER_SOL);
+      });
+    }
+  }, [connection, publicKey]);
+
+  // ----------- App & Match State -----------
+  const [wager, setWager] = useState(""); // allow empty, clamp on change / create
+  const [openMatches, setOpenMatches] = useState([]);
+  const [currentMatch, setCurrentMatch] = useState(null);
+  const [matchStatus, setMatchStatus] = useState("waiting"); // waiting | ready | racing | finished
+
+  // waiting/cancel timer (90s window)
+  const [matchCreatedAt, setMatchCreatedAt] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  // race state
+  const [sentence, setSentence] = useState("");
+  const [inputValue, setInputValue] = useState("");
+  const [playerProgress, setPlayerProgress] = useState(0);
+  const [opponentProgress, setOpponentProgress] = useState(0);
+  const [countdown, setCountdown] = useState(3);
+  const [raceResult, setRaceResult] = useState(null);
+  const [isInputDisabled, setIsInputDisabled] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [opponentWallet, setOpponentWallet] = useState(null);
+
+  const [hasError, setHasError] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+
+  const inputRef = useRef(null);
+
+  const API = process.env.REACT_APP_API_URL;
+
+  // anti-cheat limiter
+  const [lastProgTime, setLastProgTime] = useState(Date.now());
+  const [lastProg, setLastProg] = useState(0);
+  const MAX_CPS = 20;
+
+  // deterministic sentence from id
+  const chooseSentence = (id) =>
+    sentences[
+      Array.from(id).reduce((a, c) => a + c.charCodeAt(0), 0) % sentences.length
+    ];
+
+  // open matches
+  const fetchOpenMatches = async () => {
+    try {
+      const res = await fetch(`${API}/wagers`);
+      const wm = await res.json();
+      setOpenMatches(wm.filter((m) => !m.accepter));
+    } catch {
+      // ignore
+    }
+  };
+
+  // socket base listeners
+  useEffect(() => {
+    socket.connect();
+
+    socket.on("openMatches", (wm) =>
+      setOpenMatches(wm.filter((m) => !m.accepter))
+    );
+    socket.on("newMatch", (m) =>
+      setOpenMatches((os) => [...os, m].filter((x) => !x.accepter))
+    );
+    socket.on("removeMatch", (id) =>
+      setOpenMatches((os) => os.filter((m) => m.id !== id))
+    );
+
+    fetchOpenMatches();
+    return () => {
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
+  }, []);
+
+  // 90s cancel window ticker
+  useEffect(() => {
+    if (!matchCreatedAt) return;
+    const tick = () => {
+      const elapsed = Date.now() - matchCreatedAt;
+      const secs = Math.ceil((90_000 - elapsed) / 1000);
+      setTimeLeft(secs > 0 ? secs : 0);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [matchCreatedAt]);
+
+  // race lifecycle listeners
+  useEffect(() => {
+    const onStart = ({ id, players }) => {
+      // ensure progress events
+      socket.emit("joinMatch", id);
+      setPlayerProgress(0);
+      setOpponentProgress(0);
+
+      setCurrentMatch((prev) => ({
+        id,
+        amount: prev?.amount || 0,
+        creator: players[0],
+        accepter: players[1],
+        nonce: prev?.nonce,
+      }));
+
+      setSentence(chooseSentence(id)); // make sure BOTH players have a sentence
+      setMatchStatus("ready");
+      setCountdown(3);
+      setOpponentWallet(players.find((w) => w !== walletAddressRef.current));
+      setHasError(false);
+    };
+
+    const onOppProg = ({ wallet: w, progress }) => {
+      if (w !== walletAddressRef.current) setOpponentProgress(progress);
+    };
+
+    const onRaceEnd = ({ winner, progressMap }) => {
+      setMatchStatus("finished");
+      setIsInputDisabled(true);
+      setRaceResult({
+        result: winner === walletAddressRef.current ? "win" : "lose",
+      });
+      if (progressMap) {
+        setPlayerProgress(progressMap[walletAddressRef.current] ?? 0);
+        setOpponentProgress(progressMap[opponentWallet ?? ""] ?? 0);
+      }
+    };
+
+    const onChat = (msgs) => setChatMessages(msgs);
+    const onOpponentLeft = () => resetGame();
+
+    socket.on("startMatch", onStart);
+    socket.on("opponentProgress", onOppProg);
+    socket.on("raceEnd", onRaceEnd);
+    socket.on("chat", onChat);
+    socket.on("opponentLeft", onOpponentLeft);
+
+    return () => {
+      socket.off("startMatch", onStart);
+      socket.off("opponentProgress", onOppProg);
+      socket.off("raceEnd", onRaceEnd);
+      socket.off("chat", onChat);
+      socket.off("opponentLeft", onOpponentLeft);
+    };
+  }, [opponentWallet]);
+
+  // safety: enforce sentence exists when ready/racing
+  useEffect(() => {
+    if (currentMatch && (matchStatus === "ready" || matchStatus === "racing")) {
+      if (!sentence && currentMatch.id) {
+        setSentence(chooseSentence(currentMatch.id));
+      }
+      if (matchStatus === "racing") setIsInputDisabled(false);
+    }
+  }, [currentMatch, matchStatus, sentence]);
+
+  // countdown transition
+  useEffect(() => {
+    if (matchStatus === "ready" && countdown > 0) {
+      const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+      return () => clearTimeout(t);
+    } else if (matchStatus === "ready" && countdown === 0) {
+      setMatchStatus("racing");
+      setIsInputDisabled(false);
+      inputRef.current?.focus();
+    }
+  }, [countdown, matchStatus]);
+
+  // ----- actions -----
+  async function createMatch() {
+    if (!connected) return alert("Connect wallet");
+    const min = 0.01;
+    const amt = Number(wager);
+    if (!amt || isNaN(amt) || amt < min) {
+      return alert(`Minimum wager is ${min} SOL`);
+    }
+    try {
+      const lamports = Math.floor(amt * LAMPORTS_PER_SOL);
+      const nonce = Math.floor(Math.random() * 1_000_000);
+      const { ixInit, ixDeposit, escrowPda } =
+        await buildInitializeAndDepositIxns(lamports, publicKey, nonce);
+
+      const tx = new Transaction().add(ixInit, ixDeposit);
+      await wallet.sendTransaction(tx, connection);
+
+      const id = escrowPda.toBase58();
+      await fetch(`${API}/wagers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          vault: id,
+          amount: Number(amt),
+          creator: walletAddressRef.current,
+          feePercent: 5,
+          nonce,
+        }),
+      });
+
+      setCurrentMatch({
+        id,
+        amount: Number(amt),
+        creator: walletAddressRef.current,
+        nonce,
+      });
+      setMatchCreatedAt(Date.now()); // start 90s cancel window
+      setMatchStatus("waiting");
+      socket.emit("joinMatch", id);
+      fetchOpenMatches();
+    } catch (e) {
+      console.error("Create error:", e);
+      alert("Create match failed:\n" + e.message);
+    }
+  }
+
+  async function acceptMatch(m) {
+    if (!connected) return alert("Connect wallet");
+    setIsAccepting(true);
+    try {
+      const ix = await buildJoinAndDepositIxn(m.id);
+      await wallet.sendTransaction(new Transaction().add(ix), connection);
+
+      await fetch(`${API}/wagers/${m.id}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepter: walletAddressRef.current }),
+      });
+
+      setCurrentMatch({ ...m, accepter: walletAddressRef.current });
+      setSentence(chooseSentence(m.id)); // ensure accepter has it too
+      setMatchStatus("ready");
+      setCountdown(3);
+      socket.emit("joinMatch", m.id);
+      setHasError(false);
+    } catch (e) {
+      console.error("Accept error:", e);
+      alert("Accept error:\n" + e.message);
+      setCurrentMatch(null);
+    } finally {
+      setIsAccepting(false);
+    }
+  }
+
+  async function cancelMatch(m) {
+    try {
+      const ix = await buildCancelIxn(m.id, m.creator, m.accepter || m.creator);
+      await wallet.sendTransaction(new Transaction().add(ix), connection);
+      await fetch(`${API}/wagers/${m.id}/cancel`, { method: "POST" });
+      resetGame();
+    } catch (e) {
+      console.error("Cancel error:", e);
+      alert("Cancel error:\n" + e.message);
+    }
+  }
+
+  function resetGame() {
+    setCurrentMatch(null);
+    setMatchStatus("waiting");
+    setSentence("");
+    setInputValue("");
+    setPlayerProgress(0);
+    setOpponentProgress(0);
+    setCountdown(3);
+    setRaceResult(null);
+    setIsInputDisabled(false);
+    setOpponentWallet(null);
+    setLastProg(0);
+    setLastProgTime(Date.now());
+    setMatchCreatedAt(0);
+    setTimeLeft(0);
+    setHasError(false);
+    fetchOpenMatches();
+  }
+
+  // typing handler (anti-paste, cps cap, progress emit, win condition)
+  function handleInput(e) {
+    if (isInputDisabled) return;
+    if (e.type === "paste") {
+      e.preventDefault();
+      return;
+    }
+    const val = e.target.value;
+
+    if (!sentence.startsWith(val)) {
+      setHasError(true);
+      setInputValue(val); // keep showing what they typed for highlighting
+      return;
+    }
+    setHasError(false);
+
+    const now = Date.now();
+    const raw = Math.min(1, val.length / sentence.length);
+    const delta = raw - lastProg;
+    const dt = (now - lastProgTime) / 1000;
+    const cps = dt > 0 ? (delta * sentence.length) / dt : 0;
+    if (cps > MAX_CPS) return;
+
+    setLastProg(raw);
+    setLastProgTime(now);
+    setInputValue(val);
+    setPlayerProgress(raw);
+
+    if (currentMatch?.id) {
+      socket.emit("progress", {
+        matchId: currentMatch.id,
+        wallet: walletAddressRef.current,
+        progress: raw,
+      });
+    }
+
+    if (val === sentence && currentMatch?.id) {
+      fetch(`${API}/wagers/${currentMatch.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ winner: walletAddressRef.current }),
+      });
+      setMatchStatus("finished");
+      setIsInputDisabled(true);
+      setRaceResult({ result: "win" });
+    }
+  }
+
+  // ---------- UI helpers ----------
+  function renderHighlightedSentence(str, typed, error) {
+    const out = [];
+    const len = str.length;
+    for (let i = 0; i < len; i++) {
+      const ch = str[i];
+      const typedCh = typed[i];
+
+      if (i < typed.length) {
+        if (typedCh === ch) {
+          out.push(
+            <span key={i} className="text-correct">
+              {ch}
+            </span>
+          );
+        } else {
+          out.push(
+            <span key={i} className="text-error">
+              {ch}
+            </span>
+          );
+        }
+      } else if (i === typed.length && !error) {
+        out.push(
+          <span key={i} className="text-next">
+            {ch}
+          </span>
+        );
+      } else {
+        out.push(
+          <span key={i} className="text-remaining">
+            {ch}
+          </span>
+        );
+      }
+    }
+    return out;
+  }
+
+  // ---------- Homepage ----------
+  const renderHome = () => (
+    <div className="homepage">
+      <h1 className="hero-title">TypeRacer</h1>
+      <p className="hero-subtitle">
+        Race against others in real time. Place your bet and win SOL.
+      </p>
+
+      <div className="home-grid">
+        {/* Create Match */}
+        <div className="card create-card">
+          <h2>Create Match</h2>
+          <p>Pick a wager and open a new race.</p>
+
+          <div className="preset-buttons">
+            {[0.1, 0.5, 1].map((amt) => (
+              <button
+                key={amt}
+                onClick={() => setWager(amt)}
+                className={Number(wager) === amt ? "active" : ""}
+              >
+                {amt} SOL
+              </button>
+            ))}
+          </div>
+
+          <input
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="Custom amount (min 0.01)"
+            value={wager}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isNaN(n)) return setWager("");
+              setWager(Math.max(0.01, n));
+            }}
+          />
+
+          <button className="primary-btn" onClick={createMatch}>
+            Create Match
+          </button>
+        </div>
+
+        {/* Join Match */}
+        <div className="card join-card">
+          <h2>Join Match</h2>
+          <p>Browse open matches and join instantly.</p>
+          <div className="match-list">
+            {openMatches.length === 0 && (
+              <p className="muted">No open matches available</p>
+            )}
+            {openMatches.map((m) => (
+              <div className="match-item" key={m.id}>
+                <div>
+                  <strong>{m.id.slice(0, 6)}…</strong> | {m.amount} SOL
+                </div>
+                <button
+                  onClick={() => acceptMatch(m)}
+                  disabled={isAccepting}
+                  className="secondary-btn"
+                >
+                  {isAccepting ? "Joining…" : "Join"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* How It Works */}
+      <section className="how-section">
+        <h2>How It Works</h2>
+        <div className="how-grid">
+          <div className="how-card">
+            <div className="how-num">1</div>
+            <h3>Create</h3>
+            <p>Set a wager and open a match.</p>
+          </div>
+          <div className="how-card">
+            <div className="how-num">2</div>
+            <h3>Join</h3>
+            <p>Pick any open match to enter.</p>
+          </div>
+          <div className="how-card">
+            <div className="how-num">3</div>
+            <h3>Race &amp; Win</h3>
+            <p>Type fastest to win the pot.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <FAQ />
+    </div>
+  );
+
+  function FAQ() {
+    const [open, setOpen] = useState(null);
+    const items = [
+      {
+        q: "What is TypeRacer?",
+        a: "A realtime typing game on Solana. Create or join a match, race, and the winner takes the pot.",
+      },
+      {
+        q: "How are payouts handled?",
+        a: "After both deposits, the on-chain program escrows funds and pays the winner (minus fee) on resolve.",
+      },
+      {
+        q: "Can I choose any wager?",
+        a: "Yes. Use presets or type a custom amount. Minimum is 0.01 SOL.",
+      },
+    ];
+    return (
+      <section className="faq-section">
+        <h2>FAQ</h2>
+        <div className="faq-list">
+          {items.map((it, i) => (
+            <div
+              key={i}
+              className={`faq-item ${open === i ? "open" : ""}`}
+              onClick={() => setOpen(open === i ? null : i)}
+            >
+              <div className="faq-q">{it.q}</div>
+              {open === i && <div className="faq-a">{it.a}</div>}
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  // ---------- Match Screens ----------
+  const CAN_CANCEL = matchStatus === "waiting" && timeLeft === 0;
+
+  const WaitingView = () =>
+    currentMatch && matchStatus === "waiting" ? (
+      <div className="match-screen">
+        <div className="match-panel">
+          <div className="panel-header">
+            <h2>Match Lobby</h2>
+            <div className="pill">{currentMatch.amount} SOL</div>
+          </div>
+
+          <div className="panel-grid">
+            <div className="panel card">
+              <h3>Match Info</h3>
+              <div className="kv">
+                <span>Match ID:</span>
+                <span>#{currentMatch.id.slice(0, 6)}</span>
+              </div>
+              <div className="kv">
+                <span>Creator:</span>
+                <span>{currentMatch.creator.slice(0, 6)}…</span>
+              </div>
+              <div className="kv">
+                <span>Status:</span>
+                <span className="ok">Waiting for opponent</span>
+              </div>
+            </div>
+
+            <div className="panel card">
+              <h3>Players</h3>
+              <div className="player-row you">
+                <div className="dot" />
+                <div className="who">You</div>
+                <div className="addr">{walletAddressRef.current.slice(0, 6)}…</div>
+              </div>
+              <div className="player-row">
+                <div className="dot muted" />
+                <div className="who muted">Waiting for player…</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel-actions">
+            <button
+              className="btn danger"
+              onClick={() => cancelMatch(currentMatch)}
+              disabled={!CAN_CANCEL}
+              title={
+                timeLeft > 0 ? `You can cancel in ${timeLeft}s` : "Cancel match"
+              }
+            >
+              {timeLeft > 0 ? `Cancel in ${timeLeft}s` : "Cancel Match"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  const ReadyOrRacingView = () =>
+    currentMatch && (matchStatus === "ready" || matchStatus === "racing") ? (
+      <div className="match-screen">
+        <div className="race-wrap">
+          {matchStatus === "ready" ? (
+            <div className="start-count">
+              <div className="big-ring">
+                <div className="ring-inner">{countdown}</div>
+              </div>
+              <div className="start-text">Race Starting</div>
+              <div className="muted">Get ready to type!</div>
+            </div>
+          ) : (
+            <>
+              <div className="sentence card mono">
+                {renderHighlightedSentence(sentence, inputValue, hasError)}
+              </div>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={handleInput}
+                onPaste={handleInput}
+                placeholder="Start typing…"
+                disabled={isInputDisabled}
+                autoFocus
+                className={`type-input mono ${hasError ? "error" : ""}`}
+              />
+              {hasError && (
+                <div className="error-note">
+                  Mistake detected — correct it before continuing.
+                </div>
+              )}
+
+              <div className="track">
+                <div className="lane">
+                  <div
+                    className="car player"
+                    style={{ left: `calc(${playerProgress * 100}% - 28px)` }}
+                    aria-label="Your car"
+                  >
+                    🚗
+                  </div>
+                </div>
+                <div className="lane">
+                  <div
+                    className="car foe"
+                    style={{ left: `calc(${opponentProgress * 100}% - 28px)` }}
+                    aria-label="Opponent car"
+                  >
+                    🏎️
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  const ResultsView = () =>
+    matchStatus === "finished" && currentMatch ? (
+      <div className="match-screen">
+        <div className="results-card card">
+          {raceResult?.result === "win" ? (
+            <>
+              <div className="result-emoji">🏆</div>
+              <h2 className="result-title ok">Victory!</h2>
+              <p className="muted">Claim your prize of {currentMatch.amount} SOL</p>
+              <div className="actions">
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    try {
+                      const ix = await buildResolveIxn(
+                        currentMatch.id,
+                        walletAddressRef.current
+                      );
+                      const tx = new Transaction().add(ix);
+                      await wallet.sendTransaction(tx, connection);
+                      resetGame();
+                    } catch (e) {
+                      console.error("Claim error:", e);
+                      alert("Payout error:\n" + e.message);
+                    }
+                  }}
+                >
+                  Claim Winnings
+                </button>
+                <button className="btn outline" onClick={resetGame}>
+                  Back to Home
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="result-emoji">❌</div>
+              <h2 className="result-title danger">Defeat</h2>
+              <p className="muted">Better luck next time.</p>
+              <div className="actions">
+                <button className="btn outline" onClick={resetGame}>
+                  Back to Home
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="chat card">
+          <h3>Match Chat</h3>
+          <div className="chat-messages">
+            {chatMessages.map((msg, i) => (
+              <p
+                key={i}
+                className={msg.sender === walletAddressRef.current ? "self" : "other"}
+              >
+                <strong>{msg.sender.slice(0, 6)}…:</strong> {msg.message}
+              </p>
+            ))}
+          </div>
+          <div className="chat-input">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                socket.emit("message", {
+                  matchId: currentMatch.id,
+                  sender: walletAddressRef.current,
+                  message: chatInput,
+                }) &&
+                setChatInput("")
+              }
+              placeholder="Type message…"
+            />
+            <button
+              className="btn"
+              disabled={!chatInput.trim()}
+              onClick={() => {
+                socket.emit("message", {
+                  matchId: currentMatch.id,
+                  sender: walletAddressRef.current,
+                  message: chatInput,
+                });
+                setChatInput("");
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  // ensure timer starts if we land in waiting without the timestamp set
+  useEffect(() => {
+    if (currentMatch && matchStatus === "waiting" && !matchCreatedAt) {
+      setMatchCreatedAt(Date.now());
+    }
+  }, [currentMatch, matchStatus, matchCreatedAt]);
+
+  // ---------- Render ----------
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="dot" />
+          <div className="brand-text">
+            <div className="brand-title">TypeRacer</div>
+            <div className="brand-sub">Race to win SOL</div>
+          </div>
+        </div>
+
+        {connected ? (
+          <div className="wallet-pill">
+            {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
+          </div>
+        ) : (
+          <WalletMultiButton className="connect-btn" />
+        )}
+      </header>
+
+      {/* Home only when not in a match */}
+      {!currentMatch && renderHome()}
+
+      {/* Fullscreen match lifecycle */}
+      {WaitingView()}
+      {ReadyOrRacingView()}
+      {ResultsView()}
+    </div>
+  );
+}
