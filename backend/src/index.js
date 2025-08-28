@@ -1,3 +1,4 @@
+cat > backend/src/index.js <<'EOF'
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
@@ -28,6 +29,9 @@ app.use(cors());
 app.use(bodyParser.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
+
+// Simple health check for platforms like Render
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // In-memory state
 const openWagers = [];
@@ -111,7 +115,7 @@ app.post("/wagers/:id/complete", (req, res) => {
 io.on("connection", (socket) => {
   socket.emit("openMatches", openWagers);
 
-  // ✅ Wallet-based guard for joinMatch
+  // Wallet-based guard for joinMatch (only creator & accepter)
   socket.on("joinMatch", (mid, wallet) => {
     const match = openWagers.find((w) => w.id === mid);
     if (!match) {
@@ -136,7 +140,7 @@ io.on("connection", (socket) => {
     io.to(matchId).emit("chat", chats[matchId]);
   });
 
-  // ✅ Only creator & accepter can send progress
+  // Only creator & accepter can send progress
   socket.on("progress", ({ matchId, wallet, progress }) => {
     const match = openWagers.find((w) => w.id === matchId);
     if (!match) return;
@@ -198,8 +202,10 @@ app.post("/wagers/:id/resolve", async (req, res) => {
   }
 });
 
+// ─── Listen (Render needs 0.0.0.0 + provided PORT) ────────
 const PORT = process.env.PORT || 4000;
-const HOST = process.env.HOST || "127.0.0.1"; // use HOST=0.0.0.0 on Render
+const HOST = process.env.HOST || "0.0.0.0";
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Backend on http://${HOST}:${PORT}`);
 });
+EOF
