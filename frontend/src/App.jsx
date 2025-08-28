@@ -211,7 +211,7 @@ export default function App() {
 
   const [lastProgTime, setLastProgTime] = useState(Date.now());
   const [lastProg, setLastProg] = useState(0);
-  const MAX_CPS = 20;
+  const MAX_CPS = 50; // ⬅️ increased anti-cheat ceiling
 
   const chooseSentence = (id) =>
     sentences[Array.from(id).reduce((a, c) => a + c.charCodeAt(0), 0) % sentences.length];
@@ -252,7 +252,7 @@ export default function App() {
   // race lifecycle (with robust player normalization)
   useEffect(() => {
     const onStart = ({ id, players }) => {
-      socket.emit("joinMatch", id);
+      socket.emit("joinMatch", id, walletAddressRef.current);
 
       // normalize players to ensure creator+accepter are present & ordered deterministically
       const uniq = Array.from(new Set((players || []).filter(Boolean)));
@@ -306,18 +306,25 @@ export default function App() {
       }
     };
 
+   const onJoinError = (err) => {
+     alert(err.message || "Unable to join match");
+     resetGame(); // sends them back to home screen
+   };
+
+
     socket.on("startMatch", onStart);
     socket.on("opponentProgress", onOppProg);
     socket.on("raceEnd", onRaceEnd);
     socket.on("chat", setChatMessages);
     socket.on("opponentLeft", resetGame);
-
+    socket.on("joinError", onJoinError);
     return () => {
       socket.off("startMatch", onStart);
       socket.off("opponentProgress", onOppProg);
       socket.off("raceEnd", onRaceEnd);
       socket.off("chat", setChatMessages);
       socket.off("opponentLeft", resetGame);
+      socket.off("joinError", onJoinError);
     };
   }, [opponentWallet]);
 
@@ -378,7 +385,7 @@ export default function App() {
       });
       setMatchCreatedAt(Date.now());
       setMatchStatus("waiting");
-      socket.emit("joinMatch", id); // ensure creator is in the room
+      socket.emit("joinMatch", id, walletAddressRef.current); // ensure creator is in the room
       fetchOpenMatches();
     } catch (e) {
       console.error("Create error:", e);
@@ -403,7 +410,7 @@ export default function App() {
       setSentence(chooseSentence(m.id));
       setMatchStatus("ready");
       setCountdown(3);
-      socket.emit("joinMatch", m.id);
+      socket.emit("joinMatch", m.id, walletAddressRef.current);
       setHasError(false);
     } catch (e) {
       console.error("Accept error:", e);
@@ -443,6 +450,13 @@ export default function App() {
     setTimeLeft(0);
     setHasError(false);
     fetchOpenMatches();
+  }
+
+  // ⬇️ Block Select-All inside the typing input
+  function preventSelectAll(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "a") {
+      e.preventDefault();
+    }
   }
 
   function handleInput(e) {
@@ -620,6 +634,7 @@ export default function App() {
                 value={inputValue}
                 onChange={handleInput}
                 onPaste={handleInput}
+                onKeyDown={preventSelectAll}   // ⬅️ block Ctrl/Cmd+A only in this input
                 placeholder="Start typing…"
                 disabled={isInputDisabled}
                 autoFocus
@@ -741,8 +756,19 @@ export default function App() {
         </div>
 
         {connected ? (
-          <div className="wallet-pill">
-            {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
+          <div className="wallet-actions">
+            <div className="wallet-pill">
+              {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
+            </div>
+            <button
+              className="btn outline"
+              onClick={() => {
+                try { wallet.disconnect?.(); } catch {}
+                resetGame();
+              }}
+            >
+              Disconnect
+            </button>
           </div>
         ) : (
           <WalletMultiButton className="connect-btn" />

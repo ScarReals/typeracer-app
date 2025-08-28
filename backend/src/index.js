@@ -1,5 +1,3 @@
-// backend/src/index.js
-
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
@@ -21,7 +19,7 @@ const {
 const RPC_URL = process.env.SOLANA_RPC_URL;
 const HOUSE_KEYPAIR_PATH = process.env.HOUSE_KEYPAIR_PATH;
 const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID);
-// 8‑byte discriminator for `resolve` (must match your Rust)
+// 8-byte discriminator for `resolve` (must match your Rust)
 const RESOLVE_DISCRIMINATOR = Buffer.from([246, 150, 236, 206, 108, 63, 58, 10]);
 // ────────────────────────────────────────────────────────────
 
@@ -31,21 +29,20 @@ app.use(bodyParser.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// In‑memory state
+// In-memory state
 const openWagers = [];
 const chats = {};
 const liveProgress = {};
+const startedMatches = new Set(); // prevents duplicate accepts/race starts
 
 // ─── House Keypair ────────────────────────────────────────
 const secret = Uint8Array.from(
   JSON.parse(fs.readFileSync(HOUSE_KEYPAIR_PATH, "utf-8"))
 );
 const HOUSE_KEYPAIR = Keypair.fromSecretKey(secret);
-// ────────────────────────────────────────────────────────────
 
 // ─── Solana Connection ─────────────────────────────────────
 const connection = new Connection(RPC_URL, "confirmed");
-// ────────────────────────────────────────────────────────────
 
 // ─── REST + WebSocket Routes ──────────────────────────────
 app.post("/wagers", (req, res) => {
@@ -67,7 +64,20 @@ app.post("/wagers/:id/accept", (req, res) => {
   const { accepter } = req.body;
   const idx = openWagers.findIndex(w => w.id === id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
+
+  // Prevent self-accept
+  if (openWagers[idx].creator === accepter) {
+    return res.status(400).json({ error: "Creator cannot accept their own match" });
+  }
+
+  // Prevent multiple accepters
+  if (openWagers[idx].accepter) {
+    return res.status(409).json({ error: "Match already accepted" });
+  }
+
   openWagers[idx].accepter = accepter;
+  startedMatches.add(id);
+
   io.emit("removeMatch", id);
   io.to(id).emit("startMatch", {
     id,
@@ -83,6 +93,7 @@ app.post("/wagers/:id/cancel", (req, res) => {
     openWagers.splice(idx, 1);
     io.emit("removeMatch", id);
   }
+  startedMatches.delete(id);
   res.json({ success: true });
 });
 
@@ -93,13 +104,28 @@ app.post("/wagers/:id/complete", (req, res) => {
     progressMap: liveProgress[id] || {},
   });
   delete liveProgress[id];
+  startedMatches.delete(id);
   res.json({ success: true });
 });
 
-io.on("connection", socket => {
+io.on("connection", (socket) => {
   socket.emit("openMatches", openWagers);
 
-  socket.on("joinMatch", mid => {
+  // ✅ Wallet-based guard for joinMatch
+  socket.on("joinMatch", (mid, wallet) => {
+    const match = openWagers.find((w) => w.id === mid);
+    if (!match) {
+      socket.emit("joinError", { id: mid, message: "Match not found" });
+      return;
+    }
+
+    const allowedWallets = [match.creator, match.accepter].filter(Boolean);
+    if (!wallet || !allowedWallets.includes(wallet)) {
+      socket.emit("joinError", { id: mid, message: "Match is full" });
+      socket.leave(mid);
+      return;
+    }
+
     socket.join(mid);
     socket.emit("chat", chats[mid] || []);
   });
@@ -110,13 +136,22 @@ io.on("connection", socket => {
     io.to(matchId).emit("chat", chats[matchId]);
   });
 
+  // ✅ Only creator & accepter can send progress
   socket.on("progress", ({ matchId, wallet, progress }) => {
+    const match = openWagers.find((w) => w.id === matchId);
+    if (!match) return;
+
+    const allowedWallets = [match.creator, match.accepter].filter(Boolean);
+    if (!wallet || !allowedWallets.includes(wallet)) {
+      socket.emit("joinError", { id: matchId, message: "You are not in this match" });
+      return;
+    }
+
     if (!liveProgress[matchId]) liveProgress[matchId] = {};
     liveProgress[matchId][wallet] = progress;
     socket.to(matchId).emit("opponentProgress", { wallet, progress });
   });
 });
-// ────────────────────────────────────────────────────────────
 
 // ─── Resolve endpoint (house key only) ─────────────────────
 app.post("/wagers/:id/resolve", async (req, res) => {
@@ -128,25 +163,22 @@ app.post("/wagers/:id/resolve", async (req, res) => {
     const vaultPda     = new PublicKey(match.vault);
     const winnerPubkey = new PublicKey(req.body.winner);
 
-    // Build the instruction data: discriminator + winner pubkey
     const data = Buffer.concat([
       RESOLVE_DISCRIMINATOR,
       Buffer.from(winnerPubkey.toBytes()),
     ]);
 
-    // ⚠️ Keys must exactly match your IDL (no system_program here)
     const ix = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: escrowPda,       isSigner: false, isWritable: true }, // escrow
-        { pubkey: winnerPubkey,    isSigner: false, isWritable: true }, // winner
-        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true,  isWritable: true }, // house
-        { pubkey: vaultPda,        isSigner: false, isWritable: true }, // escrow_account/vault
+        { pubkey: escrowPda,       isSigner: false, isWritable: true },
+        { pubkey: winnerPubkey,    isSigner: false, isWritable: true },
+        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true,  isWritable: true },
+        { pubkey: vaultPda,        isSigner: false, isWritable: true },
       ],
       data,
     });
 
-    // Sign & send
     const tx = new Transaction().add(ix);
     tx.feePayer = HOUSE_KEYPAIR.publicKey;
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
@@ -165,9 +197,9 @@ app.post("/wagers/:id/resolve", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-// ────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`🚀 Backend on http://localhost:${PORT}`);
+const HOST = process.env.HOST || "127.0.0.1"; // use HOST=0.0.0.0 on Render
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 Backend on http://${HOST}:${PORT}`);
 });
