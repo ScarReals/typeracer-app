@@ -1,4 +1,3 @@
-cat > backend/src/index.js <<'EOF'
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
@@ -208,4 +207,3 @@ const HOST = process.env.HOST || "0.0.0.0";
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Backend on http://${HOST}:${PORT}`);
 });
-EOF
