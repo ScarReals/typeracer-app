@@ -757,28 +757,44 @@ export default function App() {
 
         {connected ? (
           <div className="wallet-actions">
-            <div className="wallet-pill">
-              {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
-            </div>
-            <button
-              className="btn outline"
-              onClick={() => {
-                try { wallet.disconnect?.(); } catch {}
-                resetGame();
-              }}
-            >
-              Disconnect
-            </button>
-          </div>
-        ) : (
-          <WalletMultiButton className="connect-btn" />
-        )}
-      </header>
-
-      {!currentMatch && renderHome()}
-      {WaitingView()}
-      {ReadyOrRacingView()}
-      {ResultsView()}
+             <div className="wallet-pill">
+      {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
     </div>
-  );
+    <button
+      className="btn outline"
+      onClick={() => {
+        try { wallet.disconnect(); } catch {}
+        resetGame();
+      }}
+    >
+      Disconnect
+    </button>
+  </div>
+) : (
+  <WalletMultiButton className="connect-btn" />
+)}
+
+<a
+  href="https://x.com/TypeRacerSol"
+  target="_blank"
+  rel="noopener noreferrer"
+  className="social-link"
+  style={{ marginLeft: "1rem" }}
+>
+  <img
+    src="/x-logo.png"
+    alt="X"
+    style={{ height: "24px", filter: "invert(1)" }}
+  />
+</a>
+
+</header>
+
+{!currentMatch && renderHome()}
+{WaitingView()}
+{ReadyOrRacingView()}
+{ResultsView()}
+
+</div>
+);
 }
