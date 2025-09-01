@@ -173,10 +173,26 @@ input[type="number"]:focus, input[type="text"]:focus{outline:none;border-color:v
 .chat-messages .self{color:#a5b4fc}
 .chat-input{display:flex;gap:8px;margin-top:8px}
 .chat-input input{flex:1;padding:10px;border-radius:10px;background:#0c1222;border:1px solid rgba(255,255,255,.08);color:var(--text)}
-/* X link/icon */
-.x-link{display:inline-flex;align-items:center;margin-right:12px}
-.x-icon {
-  width: 28px;
-  height: 28px;
-  filter: brightness(0) invert(1); /* ensures it’s pure white */
+/* X logo & link */
+.x-link { display: inline-flex; align-items: center; justify-content: center; padding: 4px; }
+.x-icon { width: 32px; height: 32px; filter: brightness(0) invert(1); /* force white */ }
+
+/* Leaderboard page layout */
+.lb-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
 }
+@media (max-width: 960px) { .lb-grid { grid-template-columns: 1fr; } }
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.lb-table th, .lb-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.lb-table th { text-align: left; color: var(--muted); font-weight: 700; }
+.lb-table tbody tr:nth-child(odd) { background: rgba(255,255,255,.03); }
