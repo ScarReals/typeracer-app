@@ -226,4 +226,7 @@ input[type="text"]:focus {
   border-radius: 0 4px 4px 0;
   margin-left: -1px;
 }
+.x-link{display:inline-flex;align-items:center;margin-right:12px}
+.x-icon{width:22px;height:22px;filter:invert(1);transition:opacity .2s ease}
+.x-icon:hover{opacity:.7}
 
