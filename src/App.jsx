@@ -803,13 +803,28 @@ export default function App() {
           <img src="/x-logo.png" alt="X" className="x-icon" />
         </a>
 
+        {/* Leaderboard nav */}
+        <a href="/leaderboard" className="btn outline" style={{ marginRight: 8 }}>
+          Leaderboard
+        </a>
+
         {connected ? (
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div className="wallet-pill">
               {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
             </div>
-            <button className="btn outline" onClick={() => wallet.disconnect()} title="Disconnect wallet">
+            <button
+              className="btn outline"
+              onClick={() => wallet.disconnect()}
+              title="Disconnect wallet"
+            >
               Disconnect
+            </button>
+          </div>
+        ) : (
+          <WalletMultiButton className="connect-btn" />
+        )}
+
             </button>
           </div>
         ) : (
