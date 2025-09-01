@@ -175,5 +175,8 @@ input[type="number"]:focus, input[type="text"]:focus{outline:none;border-color:v
 .chat-input input{flex:1;padding:10px;border-radius:10px;background:#0c1222;border:1px solid rgba(255,255,255,.08);color:var(--text)}
 /* X link/icon */
 .x-link{display:inline-flex;align-items:center;margin-right:12px}
-.x-icon{width:22px;height:22px;filter:invert(1);opacity:.9;transition:opacity .2s}
-.x-icon:hover{opacity:.7}
+.x-icon {
+  width: 28px;
+  height: 28px;
+  filter: brightness(0) invert(1); /* ensures it’s pure white */
+}
