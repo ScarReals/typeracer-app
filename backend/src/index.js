@@ -50,7 +50,9 @@ const connection = new Connection(RPC_URL, "confirmed");
 app.post("/wagers", (req, res) => {
   const { id, amount, creator, feePercent, vault, nonce } = req.body;
   if (!id || !vault || nonce === undefined) {
-    return res.status(400).json({ error: "Missing match ID, vault PDA or nonce" });
+    return res
+      .status(400)
+      .json({ error: "Missing match ID, vault PDA or nonce" });
   }
   openWagers.push({ id, amount, creator, feePercent, vault, nonce });
   io.emit("newMatch", { id, amount, creator, feePercent, nonce });
@@ -64,9 +66,14 @@ app.get("/wagers", (_req, res) => {
 app.post("/wagers/:id/accept", (req, res) => {
   const { id } = req.params;
   const { accepter } = req.body;
-  const idx = openWagers.findIndex(w => w.id === id);
+  const idx = openWagers.findIndex((w) => w.id === id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
-  if (openWagers[idx].accepter) return res.status(409).json({ error: "Already accepted" });
+
+  // prevent double-join race: if already accepted, 409
+  if (openWagers[idx].accepter) {
+    return res.status(409).json({ error: "Already accepted" });
+  }
+
   openWagers[idx].accepter = accepter;
   io.emit("removeMatch", id);
   io.to(id).emit("startMatch", {
@@ -78,7 +85,7 @@ app.post("/wagers/:id/accept", (req, res) => {
 
 app.post("/wagers/:id/cancel", (req, res) => {
   const { id } = req.params;
-  const idx = openWagers.findIndex(w => w.id === id);
+  const idx = openWagers.findIndex((w) => w.id === id);
   if (idx !== -1) {
     openWagers.splice(idx, 1);
     io.emit("removeMatch", id);
@@ -88,15 +95,15 @@ app.post("/wagers/:id/cancel", (req, res) => {
 
 app.post("/wagers/:id/complete", (req, res) => {
   const { id } = req.params;
-  const match = openWagers.find(w => w.id === id) || null;
+  const match = openWagers.find((w) => w.id === id) || null;
 
-  // Broadcast race end
+  // Broadcast race end to room
   io.to(id).emit("raceEnd", {
     winner: req.body.winner,
     progressMap: liveProgress[id] || {},
   });
 
-  // Record leaderboard entry (best-effort; no blocking)
+  // Record leaderboard entry (best-effort; non-blocking)
   try {
     const wallet = String(req.body.winner || "");
     const wpm = Number(req.body.wpm || 0);
@@ -149,10 +156,11 @@ app.get("/leaderboard", (req, res) => {
 });
 
 // ─── WebSocket ─────────────────────────────────────────────
-io.on("connection", socket => {
+io.on("connection", (socket) => {
+  // send current open matches to new client
   socket.emit("openMatches", openWagers);
 
-  socket.on("joinMatch", mid => {
+  socket.on("joinMatch", (mid) => {
     socket.join(mid);
     socket.emit("chat", chats[mid] || []);
   });
@@ -172,13 +180,15 @@ io.on("connection", socket => {
 // ────────────────────────────────────────────────────────────
 
 // ─── Resolve endpoint (house key only) ─────────────────────
+// NOTE: Keys/order must match your on-chain IDL. This version does NOT add system_program,
+// keeping behavior identical to your original (no auto-close on-chain unless your program handles it).
 app.post("/wagers/:id/resolve", async (req, res) => {
   try {
-    const match = openWagers.find(w => w.id === req.params.id);
+    const match = openWagers.find((w) => w.id === req.params.id);
     if (!match) return res.status(404).json({ error: "Match not found" });
 
-    const escrowPda    = new PublicKey(match.id);
-    const vaultPda     = new PublicKey(match.vault);
+    const escrowPda = new PublicKey(match.id);
+    const vaultPda = new PublicKey(match.vault);
     const winnerPubkey = new PublicKey(req.body.winner);
 
     // Build the instruction data: discriminator + winner pubkey
@@ -187,14 +197,14 @@ app.post("/wagers/:id/resolve", async (req, res) => {
       Buffer.from(winnerPubkey.toBytes()),
     ]);
 
-    // ⚠️ Keys must exactly match your IDL (no system_program here if your program doesn't need it)
+    // ⚠️ Keys must exactly match your IDL (no system_program here)
     const ix = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: escrowPda,       isSigner: false, isWritable: true }, // escrow
-        { pubkey: winnerPubkey,    isSigner: false, isWritable: true }, // winner
-        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true,  isWritable: true }, // house
-        { pubkey: vaultPda,        isSigner: false, isWritable: true }, // escrow_account/vault
+        { pubkey: escrowPda, isSigner: false, isWritable: true }, // escrow
+        { pubkey: winnerPubkey, isSigner: false, isWritable: true }, // winner
+        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true, isWritable: true }, // house
+        { pubkey: vaultPda, isSigner: false, isWritable: true }, // escrow_account/vault
       ],
       data,
     });
@@ -206,10 +216,10 @@ app.post("/wagers/:id/resolve", async (req, res) => {
     tx.recentBlockhash = blockhash;
     tx.sign(HOUSE_KEYPAIR);
 
-    const sig = await connection.sendRawTransaction(
-      tx.serialize(),
-      { skipPreflight: false, preflightCommitment: "confirmed" }
-    );
+    const sig = await connection.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
     await connection.confirmTransaction(sig, "confirmed");
 
     return res.json({ success: true, signature: sig });
