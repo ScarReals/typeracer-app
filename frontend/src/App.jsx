@@ -13,6 +13,9 @@ import {
   buildCancelIxn,
   buildResolveIxn,
 } from "./escrow";
+import Leaderboard from "./Leaderboard";
+
+/* SVGs omitted here in this comment — they’re included below unchanged */
 
 /* ──────────────────────────────────────────
    SVG Cars
@@ -21,7 +24,7 @@ function CarPlayerSVG() {
   return (
     <svg viewBox="0 0 120 50" className="car-svg player">
       <defs>
-        <linearGradient id="plyrBody" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id="plyrBody" x1="0%" y1="0%" x2="100%">
           <stop offset="0%" stopColor="#8b5cf6" />
           <stop offset="100%" stopColor="#a78bfa" />
         </linearGradient>
@@ -43,7 +46,7 @@ function CarOpponentSVG() {
   return (
     <svg viewBox="0 0 120 50" className="car-svg foe">
       <defs>
-        <linearGradient id="foeBody" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id="foeBody" x1="0%" y1="0%" x2="100%">
           <stop offset="0%" stopColor="#ef4444" />
           <stop offset="100%" stopColor="#fb7185" />
         </linearGradient>
@@ -211,7 +214,12 @@ export default function App() {
 
   const [lastProgTime, setLastProgTime] = useState(Date.now());
   const [lastProg, setLastProg] = useState(0);
-  const MAX_CPS = 50; // ⬅️ increased anti-cheat ceiling
+  const MAX_CPS = 50; // raised
+
+  // NEW: lightweight stats to send to leaderboard
+  const [raceStartAt, setRaceStartAt] = useState(0);
+  const [keystrokes, setKeystrokes] = useState(0);
+  const [errors, setErrors] = useState(0);
 
   const chooseSentence = (id) =>
     sentences[Array.from(id).reduce((a, c) => a + c.charCodeAt(0), 0) % sentences.length];
@@ -252,7 +260,7 @@ export default function App() {
   // race lifecycle (with robust player normalization)
   useEffect(() => {
     const onStart = ({ id, players }) => {
-      socket.emit("joinMatch", id, walletAddressRef.current);
+      socket.emit("joinMatch", id);
 
       // normalize players to ensure creator+accepter are present & ordered deterministically
       const uniq = Array.from(new Set((players || []).filter(Boolean)));
@@ -260,16 +268,10 @@ export default function App() {
 
       setCurrentMatch((prev) => {
         const fallbackCreator = prev?.creator || me;
-        // choose creator from socket or fallback (creator is simply the first non-null)
-        const creator =
-          uniq[0] ||
-          fallbackCreator;
-
-        // accepter is the other distinct wallet if present
-        const accepter =
-          uniq.find((p) => p !== creator) ||
-          prev?.accepter ||
-          null;
+        // choose creator from socket or fallback
+        const creator = uniq[0] || fallbackCreator;
+        // accepter is the other wallet if present
+        const accepter = uniq.find((p) => p !== creator) || prev?.accepter || null;
 
         const other = [creator, accepter].find((w) => w && w !== me) || null;
         setOpponentWallet(other);
@@ -290,6 +292,11 @@ export default function App() {
       setMatchStatus("ready");
       setCountdown(3);
       setHasError(false);
+
+      // reset stats for this race
+      setKeystrokes(0);
+      setErrors(0);
+      setRaceStartAt(0);
     };
 
     const onOppProg = ({ wallet: w, progress }) => {
@@ -306,25 +313,18 @@ export default function App() {
       }
     };
 
-   const onJoinError = (err) => {
-     alert(err.message || "Unable to join match");
-     resetGame(); // sends them back to home screen
-   };
-
-
     socket.on("startMatch", onStart);
     socket.on("opponentProgress", onOppProg);
     socket.on("raceEnd", onRaceEnd);
     socket.on("chat", setChatMessages);
     socket.on("opponentLeft", resetGame);
-    socket.on("joinError", onJoinError);
+
     return () => {
       socket.off("startMatch", onStart);
       socket.off("opponentProgress", onOppProg);
       socket.off("raceEnd", onRaceEnd);
       socket.off("chat", setChatMessages);
       socket.off("opponentLeft", resetGame);
-      socket.off("joinError", onJoinError);
     };
   }, [opponentWallet]);
 
@@ -343,6 +343,7 @@ export default function App() {
     } else if (matchStatus === "ready" && countdown === 0) {
       setMatchStatus("racing");
       setIsInputDisabled(false);
+      setRaceStartAt(Date.now()); // NEW: mark race start
       inputRef.current?.focus();
     }
   }, [countdown, matchStatus]);
@@ -385,7 +386,7 @@ export default function App() {
       });
       setMatchCreatedAt(Date.now());
       setMatchStatus("waiting");
-      socket.emit("joinMatch", id, walletAddressRef.current); // ensure creator is in the room
+      socket.emit("joinMatch", id); // ensure creator is in the room
       fetchOpenMatches();
     } catch (e) {
       console.error("Create error:", e);
@@ -400,17 +401,29 @@ export default function App() {
       const ix = await buildJoinAndDepositIxn(m.id);
       await wallet.sendTransaction(new Transaction().add(ix), connection);
 
-      await fetch(`${API}/wagers/${m.id}/accept`, {
+      const resp = await fetch(`${API}/wagers/${m.id}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accepter: walletAddressRef.current }),
       });
 
+      // multi-join safeguard
+      if (!resp.ok) {
+        if (resp.status === 409) {
+          alert("Someone else joined this match first.");
+          fetchOpenMatches();
+          return;
+        }
+        let msg = "Join failed";
+        try { const j = await resp.json(); if (j?.error) msg = j.error; } catch {}
+        throw new Error(msg);
+      }
+
       setCurrentMatch({ ...m, accepter: walletAddressRef.current });
       setSentence(chooseSentence(m.id));
       setMatchStatus("ready");
       setCountdown(3);
-      socket.emit("joinMatch", m.id, walletAddressRef.current);
+      socket.emit("joinMatch", m.id);
       setHasError(false);
     } catch (e) {
       console.error("Accept error:", e);
@@ -449,14 +462,11 @@ export default function App() {
     setMatchCreatedAt(0);
     setTimeLeft(0);
     setHasError(false);
+    // reset simple stats
+    setKeystrokes(0);
+    setErrors(0);
+    setRaceStartAt(0);
     fetchOpenMatches();
-  }
-
-  // ⬇️ Block Select-All inside the typing input
-  function preventSelectAll(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "a") {
-      e.preventDefault();
-    }
   }
 
   function handleInput(e) {
@@ -464,9 +474,14 @@ export default function App() {
     if (e.type === "paste") { e.preventDefault(); return; }
     const val = e.target.value;
 
+    // track keystrokes (roughly; only counts insertions)
+    const deltaLen = Math.max(0, val.length - inputValue.length);
+    if (deltaLen > 0) setKeystrokes(k => k + deltaLen);
+
     if (!sentence.startsWith(val)) {
       setHasError(true);
       setInputValue(val);
+      setErrors(err => err + 1); // simple error counter
       return;
     }
     setHasError(false);
@@ -492,10 +507,20 @@ export default function App() {
     }
 
     if (val === sentence && currentMatch?.id) {
+      // compute simple stats
+      const elapsedSec = raceStartAt ? (Date.now() - raceStartAt) / 1000 : 0.0001;
+      const words = sentence.length / 5;
+      const wpm = (words / elapsedSec) * 60;
+      const acc = Math.max(0, Math.min(100, (sentence.length / Math.max(1, sentence.length + errors)) * 100));
+
       fetch(`${API}/wagers/${currentMatch.id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner: walletAddressRef.current }),
+        body: JSON.stringify({
+          winner: walletAddressRef.current,
+          wpm,
+          accuracy: acc,
+        }),
       });
       setMatchStatus("finished");
       setIsInputDisabled(true);
@@ -573,6 +598,9 @@ export default function App() {
         </div>
       </section>
 
+      {/* NEW: Leaderboard */}
+      <Leaderboard API={API} />
+
       <FAQ />
     </div>
   );
@@ -634,7 +662,13 @@ export default function App() {
                 value={inputValue}
                 onChange={handleInput}
                 onPaste={handleInput}
-                onKeyDown={preventSelectAll}   // ⬅️ block Ctrl/Cmd+A only in this input
+                onKeyDown={(e) => {
+                  // Block Select All (Ctrl/⌘ + A)
+                  if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+                    e.preventDefault();
+                    return;
+                  }
+                }}
                 placeholder="Start typing…"
                 disabled={isInputDisabled}
                 autoFocus
@@ -756,45 +790,23 @@ export default function App() {
         </div>
 
         {connected ? (
-          <div className="wallet-actions">
-             <div className="wallet-pill">
-      {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <div className="wallet-pill">
+              {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
+            </div>
+            <button className="btn outline" onClick={() => wallet.disconnect()} title="Disconnect wallet">
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <WalletMultiButton className="connect-btn" />
+        )}
+      </header>
+
+      {!currentMatch && renderHome()}
+      {WaitingView()}
+      {ReadyOrRacingView()}
+      {ResultsView()}
     </div>
-    <button
-      className="btn outline"
-      onClick={() => {
-        try { wallet.disconnect(); } catch {}
-        resetGame();
-      }}
-    >
-      Disconnect
-    </button>
-  </div>
-) : (
-  <WalletMultiButton className="connect-btn" />
-)}
-
-<a
-  href="https://x.com/TypeRacerSol"
-  target="_blank"
-  rel="noopener noreferrer"
-  className="social-link"
-  style={{ marginLeft: "1rem" }}
->
-  <img
-    src="/x-logo.png"
-    alt="X"
-    style={{ height: "24px", filter: "invert(1)" }}
-  />
-</a>
-
-</header>
-
-{!currentMatch && renderHome()}
-{WaitingView()}
-{ReadyOrRacingView()}
-{ResultsView()}
-
-</div>
-);
+  );
 }
