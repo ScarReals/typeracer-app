@@ -808,7 +808,7 @@ export default function App() {
           Leaderboard
         </a>
 
-        {connected ? (
+             {connected ? (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div className="wallet-pill">
               {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
@@ -825,8 +825,6 @@ export default function App() {
           <WalletMultiButton className="connect-btn" />
         )}
 
-          <WalletMultiButton className="connect-btn" />
-        )}
       </header>
 
       {!currentMatch && renderHome()}
