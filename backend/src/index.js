@@ -21,13 +21,47 @@ const HOUSE_KEYPAIR_PATH = process.env.HOUSE_KEYPAIR_PATH;
 const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID);
 // 8-byte discriminator for `resolve` (must match your Rust)
 const RESOLVE_DISCRIMINATOR = Buffer.from([246, 150, 236, 206, 108, 63, 58, 10]);
+
+// Frontend origin allow-list for CORS (add more comma-separated if needed)
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGINS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
 // ────────────────────────────────────────────────────────────
 
 const app = express();
-app.use(cors());
+
+// Trust reverse proxy headers (Render/other PaaS)
+app.set("trust proxy", 1);
+
+// CORS: allow your Vercel site (and any extra origins set via env)
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Allow same-origin / non-browser requests
+      if (!origin) return cb(null, true);
+      if (FRONTEND_ORIGINS.length === 0) return cb(null, true); // fallback: allow all if not configured
+      if (FRONTEND_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"), false);
+    },
+    credentials: true,
+  })
+);
+
 app.use(bodyParser.json());
+
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (FRONTEND_ORIGINS.length === 0) return cb(null, true);
+      if (FRONTEND_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"), false);
+    },
+    credentials: true,
+  },
+});
 
 // In-memory state
 const openWagers = [];
@@ -44,6 +78,10 @@ const HOUSE_KEYPAIR = Keypair.fromSecretKey(secret);
 
 // ─── Solana Connection ─────────────────────────────────────
 const connection = new Connection(RPC_URL, "confirmed");
+// ────────────────────────────────────────────────────────────
+
+// ─── Health check (for Render) ─────────────────────────────
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
 // ────────────────────────────────────────────────────────────
 
 // ─── REST + WebSocket Routes ──────────────────────────────
@@ -130,6 +168,9 @@ app.post("/wagers/:id/complete", (req, res) => {
 // ─── Leaderboard API ───────────────────────────────────────
 // Returns top fastest by WPM and top players by #wins
 app.get("/leaderboard", (req, res) => {
+  // ensure no caching so your page always shows latest
+  res.set("Cache-Control", "no-store");
+
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
 
   // fastest runs (dedupe by wallet keeping their best)
