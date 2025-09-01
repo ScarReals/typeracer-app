@@ -29,23 +29,22 @@ app.use(bodyParser.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Simple health check for platforms like Render
-app.get("/health", (_req, res) => res.json({ ok: true }));
-
 // In-memory state
 const openWagers = [];
 const chats = {};
 const liveProgress = {};
-const startedMatches = new Set(); // prevents duplicate accepts/race starts
+const leaderboard = []; // { wallet, wpm, accuracy, amount, matchId, ts }
 
 // ─── House Keypair ────────────────────────────────────────
 const secret = Uint8Array.from(
   JSON.parse(fs.readFileSync(HOUSE_KEYPAIR_PATH, "utf-8"))
 );
 const HOUSE_KEYPAIR = Keypair.fromSecretKey(secret);
+// ────────────────────────────────────────────────────────────
 
 // ─── Solana Connection ─────────────────────────────────────
 const connection = new Connection(RPC_URL, "confirmed");
+// ────────────────────────────────────────────────────────────
 
 // ─── REST + WebSocket Routes ──────────────────────────────
 app.post("/wagers", (req, res) => {
@@ -67,20 +66,8 @@ app.post("/wagers/:id/accept", (req, res) => {
   const { accepter } = req.body;
   const idx = openWagers.findIndex(w => w.id === id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
-
-  // Prevent self-accept
-  if (openWagers[idx].creator === accepter) {
-    return res.status(400).json({ error: "Creator cannot accept their own match" });
-  }
-
-  // Prevent multiple accepters
-  if (openWagers[idx].accepter) {
-    return res.status(409).json({ error: "Match already accepted" });
-  }
-
+  if (openWagers[idx].accepter) return res.status(409).json({ error: "Already accepted" });
   openWagers[idx].accepter = accepter;
-  startedMatches.add(id);
-
   io.emit("removeMatch", id);
   io.to(id).emit("startMatch", {
     id,
@@ -96,39 +83,76 @@ app.post("/wagers/:id/cancel", (req, res) => {
     openWagers.splice(idx, 1);
     io.emit("removeMatch", id);
   }
-  startedMatches.delete(id);
   res.json({ success: true });
 });
 
 app.post("/wagers/:id/complete", (req, res) => {
   const { id } = req.params;
+  const match = openWagers.find(w => w.id === id) || null;
+
+  // Broadcast race end
   io.to(id).emit("raceEnd", {
     winner: req.body.winner,
     progressMap: liveProgress[id] || {},
   });
+
+  // Record leaderboard entry (best-effort; no blocking)
+  try {
+    const wallet = String(req.body.winner || "");
+    const wpm = Number(req.body.wpm || 0);
+    const accuracy = Number(req.body.accuracy || 0);
+    if (wallet) {
+      leaderboard.push({
+        wallet,
+        wpm: Number.isFinite(wpm) ? wpm : 0,
+        accuracy: Number.isFinite(accuracy) ? accuracy : 0,
+        amount: match?.amount ?? 0,
+        matchId: id,
+        ts: Date.now(),
+      });
+    }
+  } catch (e) {
+    console.warn("leaderboard push failed:", e.message);
+  }
+
+  // Cleanup progress
   delete liveProgress[id];
-  startedMatches.delete(id);
   res.json({ success: true });
 });
 
-io.on("connection", (socket) => {
+// ─── Leaderboard API ───────────────────────────────────────
+// Returns top fastest by WPM and top players by #wins
+app.get("/leaderboard", (req, res) => {
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+
+  // fastest runs (dedupe by wallet keeping their best)
+  const bestByWallet = new Map();
+  for (const e of leaderboard) {
+    const cur = bestByWallet.get(e.wallet);
+    if (!cur || e.wpm > cur.wpm) bestByWallet.set(e.wallet, e);
+  }
+  const fastest = Array.from(bestByWallet.values())
+    .sort((a, b) => b.wpm - a.wpm)
+    .slice(0, limit);
+
+  // most wins
+  const winCounts = new Map();
+  for (const e of leaderboard) {
+    winCounts.set(e.wallet, (winCounts.get(e.wallet) || 0) + 1);
+  }
+  const mostWins = Array.from(winCounts.entries())
+    .map(([wallet, wins]) => ({ wallet, wins }))
+    .sort((a, b) => b.wins - a.wins)
+    .slice(0, limit);
+
+  res.json({ fastest, mostWins, totalRuns: leaderboard.length });
+});
+
+// ─── WebSocket ─────────────────────────────────────────────
+io.on("connection", socket => {
   socket.emit("openMatches", openWagers);
 
-  // Wallet-based guard for joinMatch (only creator & accepter)
-  socket.on("joinMatch", (mid, wallet) => {
-    const match = openWagers.find((w) => w.id === mid);
-    if (!match) {
-      socket.emit("joinError", { id: mid, message: "Match not found" });
-      return;
-    }
-
-    const allowedWallets = [match.creator, match.accepter].filter(Boolean);
-    if (!wallet || !allowedWallets.includes(wallet)) {
-      socket.emit("joinError", { id: mid, message: "Match is full" });
-      socket.leave(mid);
-      return;
-    }
-
+  socket.on("joinMatch", mid => {
     socket.join(mid);
     socket.emit("chat", chats[mid] || []);
   });
@@ -139,22 +163,13 @@ io.on("connection", (socket) => {
     io.to(matchId).emit("chat", chats[matchId]);
   });
 
-  // Only creator & accepter can send progress
   socket.on("progress", ({ matchId, wallet, progress }) => {
-    const match = openWagers.find((w) => w.id === matchId);
-    if (!match) return;
-
-    const allowedWallets = [match.creator, match.accepter].filter(Boolean);
-    if (!wallet || !allowedWallets.includes(wallet)) {
-      socket.emit("joinError", { id: matchId, message: "You are not in this match" });
-      return;
-    }
-
     if (!liveProgress[matchId]) liveProgress[matchId] = {};
     liveProgress[matchId][wallet] = progress;
     socket.to(matchId).emit("opponentProgress", { wallet, progress });
   });
 });
+// ────────────────────────────────────────────────────────────
 
 // ─── Resolve endpoint (house key only) ─────────────────────
 app.post("/wagers/:id/resolve", async (req, res) => {
@@ -166,22 +181,25 @@ app.post("/wagers/:id/resolve", async (req, res) => {
     const vaultPda     = new PublicKey(match.vault);
     const winnerPubkey = new PublicKey(req.body.winner);
 
+    // Build the instruction data: discriminator + winner pubkey
     const data = Buffer.concat([
       RESOLVE_DISCRIMINATOR,
       Buffer.from(winnerPubkey.toBytes()),
     ]);
 
+    // ⚠️ Keys must exactly match your IDL (no system_program here if your program doesn't need it)
     const ix = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: escrowPda,       isSigner: false, isWritable: true },
-        { pubkey: winnerPubkey,    isSigner: false, isWritable: true },
-        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true,  isWritable: true },
-        { pubkey: vaultPda,        isSigner: false, isWritable: true },
+        { pubkey: escrowPda,       isSigner: false, isWritable: true }, // escrow
+        { pubkey: winnerPubkey,    isSigner: false, isWritable: true }, // winner
+        { pubkey: HOUSE_KEYPAIR.publicKey, isSigner: true,  isWritable: true }, // house
+        { pubkey: vaultPda,        isSigner: false, isWritable: true }, // escrow_account/vault
       ],
       data,
     });
 
+    // Sign & send
     const tx = new Transaction().add(ix);
     tx.feePayer = HOUSE_KEYPAIR.publicKey;
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
@@ -200,10 +218,9 @@ app.post("/wagers/:id/resolve", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+// ────────────────────────────────────────────────────────────
 
-// ─── Listen (Render needs 0.0.0.0 + provided PORT) ────────
 const PORT = process.env.PORT || 4000;
-const HOST = process.env.HOST || "0.0.0.0";
-server.listen(PORT, HOST, () => {
-  console.log(`🚀 Backend on http://${HOST}:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`🚀 Backend on http://localhost:${PORT}`);
 });
