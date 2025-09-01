@@ -15,8 +15,6 @@ import {
 } from "./escrow";
 import Leaderboard from "./Leaderboard";
 
-/* SVGs omitted here in this comment — they’re included below unchanged */
-
 /* ──────────────────────────────────────────
    SVG Cars
    ────────────────────────────────────────── */
@@ -214,9 +212,9 @@ export default function App() {
 
   const [lastProgTime, setLastProgTime] = useState(Date.now());
   const [lastProg, setLastProg] = useState(0);
-  const MAX_CPS = 50; // raised
+  const MAX_CPS = 50; // ↑ raised from 20 to 50
 
-  // NEW: lightweight stats to send to leaderboard
+  // Leaderboard stats (lightweight, winner posts)
   const [raceStartAt, setRaceStartAt] = useState(0);
   const [keystrokes, setKeystrokes] = useState(0);
   const [errors, setErrors] = useState(0);
@@ -268,10 +266,16 @@ export default function App() {
 
       setCurrentMatch((prev) => {
         const fallbackCreator = prev?.creator || me;
-        // choose creator from socket or fallback
-        const creator = uniq[0] || fallbackCreator;
-        // accepter is the other wallet if present
-        const accepter = uniq.find((p) => p !== creator) || prev?.accepter || null;
+        // choose creator from socket or fallback (creator is simply the first non-null)
+        const creator =
+          uniq[0] ||
+          fallbackCreator;
+
+        // accepter is the other distinct wallet if present
+        const accepter =
+          uniq.find((p) => p !== creator) ||
+          prev?.accepter ||
+          null;
 
         const other = [creator, accepter].find((w) => w && w !== me) || null;
         setOpponentWallet(other);
@@ -293,7 +297,7 @@ export default function App() {
       setCountdown(3);
       setHasError(false);
 
-      // reset stats for this race
+      // reset stats
       setKeystrokes(0);
       setErrors(0);
       setRaceStartAt(0);
@@ -343,7 +347,7 @@ export default function App() {
     } else if (matchStatus === "ready" && countdown === 0) {
       setMatchStatus("racing");
       setIsInputDisabled(false);
-      setRaceStartAt(Date.now()); // NEW: mark race start
+      setRaceStartAt(Date.now());
       inputRef.current?.focus();
     }
   }, [countdown, matchStatus]);
@@ -407,7 +411,7 @@ export default function App() {
         body: JSON.stringify({ accepter: walletAddressRef.current }),
       });
 
-      // multi-join safeguard
+      // ── multi-join safeguard
       if (!resp.ok) {
         if (resp.status === 409) {
           alert("Someone else joined this match first.");
@@ -462,7 +466,6 @@ export default function App() {
     setMatchCreatedAt(0);
     setTimeLeft(0);
     setHasError(false);
-    // reset simple stats
     setKeystrokes(0);
     setErrors(0);
     setRaceStartAt(0);
@@ -474,14 +477,14 @@ export default function App() {
     if (e.type === "paste") { e.preventDefault(); return; }
     const val = e.target.value;
 
-    // track keystrokes (roughly; only counts insertions)
+    // track keystrokes (rough count for WPM/accuracy)
     const deltaLen = Math.max(0, val.length - inputValue.length);
     if (deltaLen > 0) setKeystrokes(k => k + deltaLen);
 
     if (!sentence.startsWith(val)) {
       setHasError(true);
       setInputValue(val);
-      setErrors(err => err + 1); // simple error counter
+      setErrors(err => err + 1);
       return;
     }
     setHasError(false);
@@ -598,7 +601,7 @@ export default function App() {
         </div>
       </section>
 
-      {/* NEW: Leaderboard */}
+      {/* Leaderboard */}
       <Leaderboard API={API} />
 
       <FAQ />
@@ -789,16 +792,39 @@ export default function App() {
           </div>
         </div>
 
+        {/* X logo link */}
+        <a
+          href="https://x.com/TypeRacerSol"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="x-link"
+          title="Follow us on X"
+        >
+          <img src="/x-logo.png" alt="X" className="x-icon" />
+        </a>
+
+        {/* Leaderboard nav */}
+        <a href="/leaderboard" className="btn outline" style={{ marginRight: 8 }}>
+          Leaderboard
+        </a>
+
         {connected ? (
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div className="wallet-pill">
               {walletAddressRef.current.slice(0, 6)}… ({walletBalance.toFixed(2)} SOL)
             </div>
-            <button className="btn outline" onClick={() => wallet.disconnect()} title="Disconnect wallet">
+            <button
+              className="btn outline"
+              onClick={() => wallet.disconnect()}
+              title="Disconnect wallet"
+            >
               Disconnect
             </button>
           </div>
         ) : (
+          <WalletMultiButton className="connect-btn" />
+        )}
+
           <WalletMultiButton className="connect-btn" />
         )}
       </header>
