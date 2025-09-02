@@ -552,6 +552,7 @@ export default function App() {
     <div className="homepage">
       <h1 className="hero-title">TypeRacer</h1>
       <p className="hero-subtitle">Race against others in real time. Place your bet and win SOL.</p>
+      <p className="hero-subtitle">CA:</p>
 
       <div className="home-grid">
         {/* Create Match */}
