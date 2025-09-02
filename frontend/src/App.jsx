@@ -553,7 +553,7 @@ export default function App() {
       <h1 className="hero-title">TypeRacer</h1>
       <p className="hero-subtitle">Win Matches. Hold $TYPE. Earn SOL.</p>
       <p className="hero-subtitle">A random holder every hour will win the pump.fun dynamic fees.</p>
-      <p className="hero-subtitle">CA:</p>
+      <p className="hero-subtitle">CA:Hg2D7pSvsuxiA97QkcZ4stDvQzyGwqhGBz8dqN5Hpump </p>
 
       <div className="home-grid">
         {/* Create Match */}
